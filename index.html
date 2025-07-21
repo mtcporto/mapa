@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mapa de Quiosques - Oitizeiro</title>
+  <meta name="description" content="Mapa interativo dos quiosques do Oitizeiro" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <style>
+    :root {
+      --ocupado: #007bff;  /* Azul mais brilhante */
+      --livre: #28a745;    /* Verde */
+      --expirando: #ffc107; /* Amarelo */
+      --expirado: #dc3545;  /* Vermelho */
+      --outro: #adb5bd;     /* Cinza mais claro */
+    }
+    
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f8f9fa;
+    }
+    
+    .map-container {
+      position: relative;
+      width: 100%;
+      height: 85vh;
+      overflow: auto;
+      border: 1px solid #dee2e6;
+      border-radius: 0.5rem;
+      background-color: white;
+    }
+    
+    .svg-container {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      transform-origin: center;
+      transition: transform 0.2s ease;
+    }
+    
+    .kiosk {
+      cursor: pointer;
+      transition: opacity 0.3s, filter 0.3s;
+    }
+    
+    .kiosk:hover {
+      opacity: 0.8;
+      filter: brightness(1.2);
+    }
+    
+    .tooltip-custom {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 0.5rem;
+      border-radius: 0.25rem;
+      font-size: 0.875rem;
+      pointer-events: none;
+      z-index: 100;
+      display: none;
+      max-width: 200px;
+    }
+    
+    .color-ocupado { background-color: var(--ocupado); }
+    .color-livre { background-color: var(--livre); }
+    .color-expirando { background-color: var(--expirando); }
+    .color-expirado { background-color: var(--expirado); }
+    .color-outro { background-color: var(--outro); }
+    
+    .fill-ocupado { fill: var(--ocupado); }
+    .fill-livre { fill: var(--livre); }
+    .fill-expirando { fill: var(--expirando); }
+    .fill-expirado { fill: var(--expirado); }
+    .fill-outro { fill: var(--outro); opacity: 0.5; }
+    
+    .search-box {
+      margin-bottom: 1rem;
+    }
+    
+    /* Painel lateral de estatísticas */
+    .stats-panel {
+      background-color: white;
+      border-radius: 0.5rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+    }
+    
+    .status-count {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+    }
+    
+    .filter-option {
+      padding: 0.5rem;
+      border-radius: 0.25rem;
+      margin-bottom: 0.5rem;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    .filter-option:hover {
+      background-color: #f0f0f0;
+    }
+    
+    .filter-option.active {
+      background-color: #e9ecef;
+      font-weight: 500;
+    }
+    
+    /* Controles de zoom */
+    .zoom-controls {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      background-color: white;
+      border-radius: 0.25rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .zoom-button {
+      width: 2.5rem;
+      height: 2.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      font-weight: bold;
+      cursor: pointer;
+      user-select: none;
+      border: none;
+      background-color: white;
+    }
+    
+    .zoom-button:first-child {
+      border-bottom: 1px solid #dee2e6;
+      border-radius: 0.25rem 0.25rem 0 0;
+    }
+    
+    .zoom-button:last-child {
+      border-radius: 0 0 0.25rem 0.25rem;
+    }
+    
+    .zoom-button:hover {
+      background-color: #f8f9fa;
+    }
+    
+    /* Responsividade */
+    @media (max-width: 768px) {
+      .map-container {
+        height: 70vh;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container-fluid py-4">
+    <div class="row">
+      <div class="col-md-3 col-lg-2">
+        <!-- Painel de estatísticas -->
+        <div class="stats-panel mb-3">
+          <h5 class="mb-3">Status dos Quiosques</h5>
+          <div class="status-count">
+            <span><i class="bi bi-square-fill me-2 text-success"></i>Livres</span>
+            <span id="count-livre">0</span>
+          </div>
+          <div class="status-count">
+            <span><i class="bi bi-square-fill me-2 text-primary"></i>Ocupados</span>
+            <span id="count-ocupado">0</span>
+          </div>
+          <div class="status-count">
+            <span><i class="bi bi-square-fill me-2 text-warning"></i>Vencidos</span>
+            <span id="count-expirando">0</span>
+          </div>
+          <div class="status-count">
+            <span><i class="bi bi-square-fill me-2 text-danger"></i>Irregulares</span>
+            <span id="count-expirado">0</span>
+          </div>
+          <div class="status-count">
+            <span><i class="bi bi-square-fill me-2 text-secondary"></i>Manutenção</span>
+            <span id="count-outro">0</span>
+          </div>
+        </div>
+        
+        <!-- Filtros -->
+        <div class="stats-panel">
+          <h5 class="mb-3">Filtros</h5>
+          <div class="filter-option active" data-filter="todos">Todos os quiosques</div>
+          <div class="filter-option" data-filter="livre">Apenas livres</div>
+          <div class="filter-option" data-filter="ocupado">Apenas ocupados</div>
+          <div class="filter-option" data-filter="expirando">Apenas vencidos</div>
+          <div class="filter-option" data-filter="expirado">Apenas irregulares</div>
+        </div>
+        
+        <!-- Busca -->
+        <div class="stats-panel">
+          <h5 class="mb-3">Busca</h5>
+          <div class="input-group">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input type="text" id="searchInput" class="form-control" placeholder="Nome, CPF ou atividade...">
+          </div>
+        </div>
+      </div>
+      
+      <div class="col-md-9 col-lg-10">
+        <div class="card">
+          <div class="card-header">
+            <h5 class="mb-0">Mapa de Quiosques - Oitizeiro</h5>
+          </div>
+          
+          <div class="card-body">
+            <div class="map-container">
+              <div class="svg-container">
+                <svg width="100%" height="100%" viewBox="0 0 919 1329" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Mapa de quiosques">
+                  <!-- Quiosques ocupados (azul) -->
+                  <rect x="218.466" y="393.75" width="77.6365" height="68.609" id="box-101" class="kiosk fill-ocupado" data-box="101"></rect>
+                  <rect x="454.986" y="265.56" width="137.218" height="43.332" id="box-105" class="kiosk fill-ocupado" data-box="105"></rect>
+                  <rect x="523.595" y="310.697" width="68.609" height="39.721" id="box-107" class="kiosk fill-ocupado" data-box="107"></rect>
+                  <rect x="646.369" y="346.807" width="50.554" height="106.525" id="box-108" class="kiosk fill-ocupado" data-box="108"></rect>
+                  <rect x="525.401" y="525.552" width="66.8035" height="41.5265" id="box-111" class="kiosk fill-ocupado" data-box="111"></rect>
+                  <rect x="409.849" y="1063.59" width="72.22" height="81.2475" id="box-114" class="kiosk fill-ocupado" data-box="114"></rect>
+                  <rect x="599.426" y="1164.7" width="72.22" height="92.0806" id="box-115" class="kiosk fill-ocupado" data-box="115"></rect>
+                  
+                  <!-- Quiosques livres (verde) -->
+                  <rect x="218.466" y="464.165" width="77.6365" height="68.609" id="box-102" class="kiosk fill-livre" data-box="102"></rect>
+                  <rect x="454.986" y="310.697" width="66.8035" height="39.721" id="box-106" class="kiosk fill-livre" data-box="106"></rect>
+                  <rect x="646.369" y="455.138" width="50.554" height="106.525" id="box-109" class="kiosk fill-livre" data-box="109"></rect>
+                  <rect x="436.931" y="966.094" width="176.939" height="95.6916" id="box-113" class="kiosk fill-livre" data-box="113"></rect>
+                  
+                  <!-- Quiosques expirando (laranja) -->
+                  <rect x="218.466" y="534.58" width="77.6365" height="68.609" id="box-103" class="kiosk fill-expirando" data-box="103"></rect>
+                  <rect x="646.369" y="563.468" width="50.554" height="106.525" id="box-110" class="kiosk fill-expirando" data-box="110"></rect>
+                  
+                  <!-- Quiosques expirados (vermelho) -->
+                  <rect x="321.379" y="267.365" width="54.165" height="46.943" id="box-104" class="kiosk fill-expirado" data-box="104"></rect>
+                  <rect x="456.792" y="525.552" width="66.8035" height="41.5265" id="box-112" class="kiosk fill-expirado" data-box="112"></rect>
+                  
+                  <!-- Boxes realocados para elementos anteriormente em cinza -->
+                  <rect x="218.466" y="330.558" width="77.6365" height="61.387" id="box-121" class="kiosk fill-ocupado" data-box="121"></rect>
+                  <rect x="218.466" y="604.994" width="77.6365" height="68.609" id="box-122" class="kiosk fill-ocupado" data-box="122"></rect>
+                  <rect x="216.66" y="725.963" width="79.442" height="63.1925" id="box-123" class="kiosk fill-ocupado" data-box="123"></rect>
+                  <rect x="133.607" y="736.796" width="81.2475" height="43.332" id="box-117" class="kiosk fill-livre" data-box="117"></rect>
+                  <rect x="133.607" y="781.933" width="81.2475" height="59.5815" id="box-116" class="kiosk fill-livre" data-box="116"></rect>
+                  
+                  <!-- Elementos de fundo (cinza) -->
+                  <g class="fill-outro pointer-events-none">
+                    <rect x="182.356" y="160.841" width="34.3045" height="55.9705"></rect>
+                    <path d="M170.868 267.365H216.66V359.446H153.468L170.868 267.365Z"></path>
+                    <rect x="218.466" y="160.841" width="48.7485" height="68.609"></rect>
+                    <rect x="218.466" y="267.365" width="77.6365" height="61.387"></rect>
+                    <rect x="133.607" y="843.32" width="81.2475" height="68.609" id="box-118" class="kiosk fill-expirando" data-box="118"></rect>
+                    <rect x="216.66" y="790.961" width="79.442" height="64.998" id="box-119" class="kiosk fill-expirando" data-box="119"></rect>
+                    <rect x="216.66" y="857.764" width="79.442" height="64.998" id="box-120" class="kiosk fill-expirado" data-box="120"></rect>
+                    <rect x="164.301" y="913.735" width="50.554" height="86.664" id="box-124" class="kiosk fill-expirado" data-box="124"></rect>
+                    <rect x="216.66" y="924.568" width="79.442" height="61.387"></rect>
+                    <rect x="216.66" y="987.76" width="79.442" height="64.998"></rect>
+                    <rect x="220.271" y="1083.45" width="55.9705" height="45.1375"></rect>
+                    <rect x="75.8311" y="1148.45" width="34.3045" height="25.277"></rect>
+                    <rect x="27.0825" y="1121.37" width="46.943" height="52.3595"></rect>
+                    <rect x="27.0825" y="1096.09" width="46.943" height="23.4715"></rect>
+                    <rect x="1.80548" y="1124.98" width="23.4715" height="48.7485"></rect>
+                    <path d="M83.053 1094.28H148.051V1171.92L111.941 1172.82V1147.55H83.053V1094.28Z"></path>
+                    <rect x="216.66" y="1130.39" width="59.5815" height="45.1375"></rect>
+                    <path d="M149.857 1092.48H217.563V1127.69H214.855V1171.92H149.857V1092.48Z"></path>
+                    <rect x="124.58" y="361.251" width="92.0806" height="59.5815"></rect>
+                    <rect x="124.58" y="422.639" width="92.0806" height="64.998"></rect>
+                    <rect x="124.58" y="489.442" width="92.0806" height="124.58"></rect>
+                    <rect x="133.607" y="615.827" width="81.2475" height="119.163"></rect>
+                    <rect x="269.02" y="160.841" width="52.3595" height="68.609"></rect>
+                    <rect x="323.185" y="160.841" width="52.3595" height="68.609"></rect>
+                    <rect x="276.242" y="5.56781" width="41.5265" height="27.0825"></rect>
+                    <rect x="487.485" y="7.37329" width="50.554" height="25.277"></rect>
+                    <rect x="575.955" y="0.151306" width="18.055" height="37.9155"></rect>
+                    <rect x="579.566" y="50.7053" width="32.499" height="23.4715"></rect>
+                    <rect x="698.729" y="74.1768" width="18.055" height="43.332"></rect>
+                    <rect x="716.784" y="155.424" width="193.189" height="72.22"></rect>
+                    <rect x="462.208" y="137.369" width="129.996" height="90.275"></rect>
+                    <path d="M594.01 222.228H648.175V182.507H651.786V206.881H657.202V227.644H594.01V222.228Z"></path>
+                    <path d="M594.01 150.064C594.01 142.056 600.502 135.564 608.51 135.564H631.869C639.877 135.564 646.369 142.056 646.369 150.064V220.422H594.01V150.064Z"></path>
+                    <rect x="680.674" y="1.95679" width="63.1925" height="30.6935"></rect>
+                    <rect x="101.108" y="736.796" width="30.6935" height="104.719"></rect>
+                    <rect x="805.253" y="265.56" width="72.22" height="164.301"></rect>
+                    <rect x="805.253" y="431.666" width="108.33" height="129.996"></rect>
+                    <rect x="881.084" y="563.468" width="32.499" height="52.3595"></rect>
+                    <rect x="884.695" y="617.633" width="28.888" height="52.3595"></rect>
+                    <rect x="882.89" y="769.295" width="30.6935" height="106.525"></rect>
+                    <rect x="803.448" y="855.959" width="77.6365" height="119.163"></rect>
+                    <rect x="882.89" y="877.625" width="30.6935" height="95.6916"></rect>
+                    <rect x="882.89" y="975.122" width="30.6935" height="61.387"></rect>
+                    <rect x="803.448" y="976.927" width="77.6365" height="59.5815"></rect>
+                    <rect x="801.642" y="1038.31" width="77.6365" height="111.941"></rect>
+                    <rect x="801.642" y="1152.06" width="68.609" height="54.165"></rect>
+                    <rect x="787.198" y="1208.03" width="34.3045" height="48.7485"></rect>
+                    <rect x="823.308" y="1208.03" width="34.3045" height="48.7485"></rect>
+                    <rect x="859.418" y="1208.03" width="25.277" height="48.7485"></rect>
+                    <rect x="823.308" y="1258.59" width="32.499" height="18.055"></rect>
+                    <path d="M803.448 677.214H884.695V671.798H913.583V767.489H881.084V854.153H803.448V767.489V677.214Z"></path>
+                    <path d="M805.253 563.468H879.279V618.535H881.987V675.409H805.253V563.468Z"></path>
+                    <rect x="879.279" y="265.56" width="28.888" height="83.053"></rect>
+                    <rect x="879.279" y="350.418" width="39.721" height="79.442"></rect>
+                    <rect x="454.986" y="373.89" width="66.8035" height="41.5265"></rect>
+                    <rect x="523.595" y="373.89" width="66.8035" height="41.5265"></rect>
+                    <rect x="523.595" y="417.222" width="66.8035" height="41.5265"></rect>
+                    <rect x="454.986" y="417.222" width="66.8035" height="41.5265"></rect>
+                    <rect x="456.792" y="482.22" width="66.8035" height="41.5265"></rect>
+                    <rect x="456.792" y="588.745" width="66.8035" height="41.5265"></rect>
+                    <rect x="456.792" y="693.464" width="66.8035" height="41.5265"></rect>
+                    <rect x="456.792" y="632.077" width="66.8035" height="59.5815"></rect>
+                    <rect x="525.401" y="588.745" width="66.8035" height="41.5265"></rect>
+                    <rect x="525.401" y="693.464" width="66.8035" height="41.5265"></rect>
+                    <rect x="525.401" y="632.077" width="66.8035" height="59.5815"></rect>
+                    <rect x="525.401" y="482.22" width="66.8035" height="41.5265"></rect>
+                    <rect x="608.454" y="285.42" width="14.444" height="36.11"></rect>
+                    <rect x="608.454" y="341.391" width="14.444" height="28.888"></rect>
+                    <rect x="608.454" y="384.723" width="18.055" height="41.5265"></rect>
+                    <rect x="608.454" y="438.888" width="14.444" height="36.11"></rect>
+                    <rect x="606.648" y="484.026" width="21.666" height="52.3595"></rect>
+                    <rect x="606.648" y="552.635" width="18.055" height="50.554"></rect>
+                    <rect x="610.259" y="617.633" width="14.444" height="64.998"></rect>
+                    <rect x="608.454" y="236.672" width="30.6935" height="36.11"></rect>
+                    <rect x="646.369" y="265.56" width="157.079" height="63.1925"></rect>
+                    <rect x="321.379" y="316.114" width="54.165" height="46.943"></rect>
+                    <rect x="321.379" y="364.862" width="54.165" height="46.943"></rect>
+                    <rect x="321.379" y="413.611" width="54.165" height="52.3595"></rect>
+                    <rect x="324.99" y="491.248" width="50.554" height="39.721"></rect>
+                    <rect x="324.99" y="532.774" width="50.554" height="99.3026"></rect>
+                    <rect x="324.99" y="633.882" width="50.554" height="70.4145"></rect>
+                    <rect x="323.185" y="724.157" width="50.554" height="86.664"></rect>
+                    <path d="M377.35 966.094H412.557V971.511H416.168V966.094H433.32V1061.79H415.265V1035.61H411.654V1061.79H398.113V1035.61H394.502V1061.79H377.35V1032.9V994.982H394.502V1020.26H398.113V994.982H412.557V1020.26H416.168V985.052H412.557V990.469H377.35V966.094Z"></path>
+                    <path d="M675.257 966.094H640.05V971.511H636.439V966.094H619.287V1061.79H637.342V1035.61H640.953V1061.79H654.494V1035.61H658.105V1061.79H675.257V1032.9V994.982H658.105V1020.26H654.494V994.982H640.05V1020.26H636.439V985.052H640.05V990.469H675.257V966.094Z"></path>
+                    <rect x="400.821" y="879.43" width="68.609" height="50.554"></rect>
+                    <rect x="345.77" y="869.945" width="33.9907" height="14.0116" transform="rotate(-56.764 345.77 869.945)"></rect>
+                    <rect x="381.861" y="826.675" width="28.5675" height="16.1904" transform="rotate(-33.7081 381.861 826.675)"></rect>
+                    <rect x="406.238" y="810.426" width="22.5635" height="22.1648" transform="rotate(-33.7081 406.238 810.426)"></rect>
+                    <rect x="447.764" y="785.385" width="42.1735" height="22.1648" transform="rotate(-23.1423 447.764 785.385)"></rect>
+                    <rect x="526.536" y="758.462" width="42.1735" height="25.1417" transform="rotate(22.151 526.536 758.462)"></rect>
+                    <rect x="567.379" y="774.711" width="98.9676" height="38.802" transform="rotate(22.151 567.379 774.711)"></rect>
+                    <rect x="677.622" y="830.682" width="73.6053" height="36.6659" transform="rotate(34.9441 677.622 830.682)"></rect>
+                    <rect x="471.236" y="879.43" width="55.9705" height="50.554"></rect>
+                    <rect x="529.012" y="879.43" width="37.9155" height="50.554"></rect>
+                    <rect x="568.733" y="879.43" width="37.9155" height="50.554"></rect>
+                    <rect x="483.874" y="1063.59" width="72.22" height="34.3045"></rect>
+                    <rect x="557.9" y="1063.59" width="75.831" height="34.3045"></rect>
+                    <rect x="635.536" y="1063.59" width="36.11" height="68.609"></rect>
+                    <rect x="561.511" y="1164.7" width="36.11" height="92.0806"></rect>
+                    <rect x="579.566" y="1292.89" width="39.721" height="25.277"></rect>
+                    <rect x="519.984" y="1280.25" width="43.332" height="46.943"></rect>
+                    <rect x="417.071" y="1282.06" width="43.332" height="43.332"></rect>
+                    <rect x="462.208" y="1282.06" width="34.3045" height="46.943"></rect>
+                    <rect y="1224.28" width="48.7485" height="46.943"></rect>
+                    <rect y="1273.03" width="57.776" height="52.3595"></rect>
+                    <rect x="608.454" y="879.43" width="37.9155" height="50.554"></rect>
+                  </g>
+                </svg>
+              </div>
+              
+              <!-- Controles de zoom -->
+              <div class="zoom-controls">
+                <button class="zoom-button" id="zoomIn">+</button>
+                <button class="zoom-button" id="zoomOut">-</button>
+              </div>
+              
+              <!-- Tooltip para informações ao passar o mouse -->
+              <div id="tooltip" class="tooltip-custom"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal para detalhes do quiosque -->
+  <div class="modal fade" id="kioskModal" tabindex="-1" aria-labelledby="kioskModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="kioskModalLabel">Detalhes do Quiosque</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+        </div>
+        <div class="modal-body" id="kioskModalBody">
+          <!-- O conteúdo será inserido via JavaScript -->
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+  
+  <script>
+    // Carregar dados do JSON
+    document.addEventListener('DOMContentLoaded', function() {
+      // Converter mais elementos cinzas em quiosques interativos
+      convertGrayElements();
+      
+      fetch('oitizeiro.json')
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('Erro ao carregar dados: ' + response.statusText);
+          }
+          return response.json();
+        })
+        .then(data => {
+          setupMap(data);
+        })
+        .catch(error => {
+          console.error('Erro ao carregar dados:', error);
+          alert('Não foi possível carregar os dados dos quiosques. Por favor, tente novamente mais tarde.');
+        });
+        
+      // Configurar controles de zoom
+      setupZoomControls();
+    });
+    
+    // Função para converter alguns elementos cinza em quiosques interativos
+    function convertGrayElements() {
+      const svgContainer = document.querySelector('.svg-container svg');
+      const grayGroup = document.querySelector('.fill-outro');
+      
+      // Selecionar alguns retângulos para transformar em quiosques
+      const rectElements = Array.from(grayGroup.querySelectorAll('rect'));
+      
+      // Escolher 30 elementos com tamanho razoável para serem quiosques
+      const suitableElements = rectElements.filter(rect => {
+        const width = parseFloat(rect.getAttribute('width'));
+        const height = parseFloat(rect.getAttribute('height'));
+        return width > 30 && height > 20; // Tamanho mínimo para ser um quiosque
+      });
+      
+      // Distribuir status entre os quiosques
+      const statusClasses = ['fill-ocupado', 'fill-livre', 'fill-expirando', 'fill-expirado'];
+      
+      // Escolher no máximo 30 elementos
+      const elementsToConvert = suitableElements.slice(0, 30);
+      
+      // Remover os elementos escolhidos do grupo cinza
+      elementsToConvert.forEach((rect, index) => {
+        const boxNumber = 200 + index; // Começar os novos boxes a partir do número 200
+        const statusClass = statusClasses[index % statusClasses.length]; // Alternar entre os status
+        
+        // Copiar atributos do elemento original
+        const newRect = rect.cloneNode(true);
+        
+        // Configurar como quiosque
+        newRect.setAttribute('id', `box-${boxNumber}`);
+        newRect.setAttribute('class', `kiosk ${statusClass}`);
+        newRect.setAttribute('data-box', boxNumber.toString());
+        
+        // Remover do grupo cinza e adicionar direto no SVG
+        svgContainer.insertBefore(newRect, grayGroup);
+        
+        // Remover o elemento original
+        grayGroup.removeChild(rect);
+      });
+    }
+    
+    // Configurar controles de zoom
+    function setupZoomControls() {
+      const svgContainer = document.querySelector('.svg-container');
+      const svg = svgContainer.querySelector('svg');
+      let currentScale = 1;
+      const scaleStep = 0.2;
+      
+      document.getElementById('zoomIn').addEventListener('click', () => {
+        currentScale += scaleStep;
+        updateZoom();
+      });
+      
+      document.getElementById('zoomOut').addEventListener('click', () => {
+        currentScale = Math.max(0.5, currentScale - scaleStep);
+        updateZoom();
+      });
+      
+      // Função para atualizar o zoom
+      function updateZoom() {
+        svgContainer.style.transform = `scale(${currentScale})`;
+        svgContainer.style.transformOrigin = 'center';
+      }
+      
+      // Adicionar também suporte para zoom com roda do mouse
+      svgContainer.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+          currentScale = Math.min(3, currentScale + scaleStep);
+        } else {
+          currentScale = Math.max(0.5, currentScale - scaleStep);
+        }
+        updateZoom();
+      });
+    }
+
+    function setupMap(oitizeiroData) {
+      const kiosks = document.querySelectorAll('.kiosk');
+      const tooltip = document.getElementById('tooltip');
+      const searchInput = document.getElementById('searchInput');
+      const kioskModal = new bootstrap.Modal(document.getElementById('kioskModal'));
+      const kioskModalBody = document.getElementById('kioskModalBody');
+      const kioskModalLabel = document.getElementById('kioskModalLabel');
+      const filterOptions = document.querySelectorAll('.filter-option');
+      
+      // Mapeia dados para os boxes
+      const boxData = {};
+      
+      // Mapeia dados do JSON para os boxes (exemplo simplificado)
+      oitizeiroData.forEach((pessoa, index) => {
+        const boxNumber = pessoa["OBS."] ? pessoa["OBS."].match(/BOX\s+(\d+[A-Z]?)/i) : null;
+        const boxId = boxNumber ? boxNumber[1] : null;
+        
+        if (boxId) {
+          boxData[boxId] = {
+            nome: pessoa["Nome Completo"] || "Sem nome",
+            cpf: pessoa["CPF"] || "-",
+            atividade: pessoa["Atividade"] || "-",
+            telefone: pessoa["Telefone"] || "-",
+            endereco: pessoa["Endereço"] || "-",
+            bairro: pessoa["Bairro"] || "-",
+            cidade: pessoa["Cidade"] || "-",
+            tempo: pessoa["Tempo"] || "-",
+            observacao: pessoa["OBS."] || "-"
+          };
+        }
+      });
+      
+      // Para os boxes que não têm dados no JSON, atribuir alguns dados aleatórios
+      // dos registros existentes para ter uma demonstração mais completa
+      const boxesWithData = Object.keys(boxData);
+      kiosks.forEach(kiosk => {
+        const boxId = kiosk.getAttribute('data-box');
+        
+        if (!boxData[boxId] && boxesWithData.length > 0) {
+          // Escolher um registro aleatório para usar como exemplo
+          const randomIndex = Math.floor(Math.random() * boxesWithData.length);
+          const randomBoxId = boxesWithData[randomIndex];
+          const randomData = boxData[randomBoxId];
+          
+          boxData[boxId] = {
+            ...randomData,
+            nome: `Exemplo: ${randomData.nome}`,
+            observacao: `BOX ${boxId} (dados de demonstração)`
+          };
+        }
+      });
+      
+      // Atualizar contagens no painel lateral
+      updateStatusCounts();
+      
+      // Adiciona eventos para os quiosques
+      kiosks.forEach(kiosk => {
+        const boxId = kiosk.getAttribute('data-box');
+        
+        // Mostra tooltip ao passar o mouse
+        kiosk.addEventListener('mouseover', (e) => {
+          const info = boxData[boxId] || { nome: 'Não ocupado', atividade: '-' };
+          tooltip.innerHTML = `<strong>Box ${boxId}</strong><br>${info.nome}<br>${info.atividade}`;
+          tooltip.style.display = 'block';
+          updateTooltipPosition(e);
+        });
+        
+        kiosk.addEventListener('mousemove', updateTooltipPosition);
+        
+        kiosk.addEventListener('mouseout', () => {
+          tooltip.style.display = 'none';
+        });
+        
+        // Mostra modal ao clicar
+        kiosk.addEventListener('click', () => {
+          const info = boxData[boxId];
+          kioskModalLabel.textContent = `Box ${boxId}`;
+          
+          if (info) {
+            kioskModalBody.innerHTML = `
+              <div class="table-responsive">
+                <table class="table table-striped">
+                  <tr>
+                    <th>Nome</th>
+                    <td>${info.nome}</td>
+                  </tr>
+                  <tr>
+                    <th>CPF</th>
+                    <td>${info.cpf}</td>
+                  </tr>
+                  <tr>
+                    <th>Atividade</th>
+                    <td>${info.atividade}</td>
+                  </tr>
+                  <tr>
+                    <th>Telefone</th>
+                    <td>${info.telefone}</td>
+                  </tr>
+                  <tr>
+                    <th>Endereço</th>
+                    <td>${info.endereco}, ${info.bairro}, ${info.cidade}</td>
+                  </tr>
+                  <tr>
+                    <th>Tempo</th>
+                    <td>${info.tempo}</td>
+                  </tr>
+                  <tr>
+                    <th>Observação</th>
+                    <td>${info.observacao}</td>
+                  </tr>
+                </table>
+              </div>
+            `;
+          } else {
+            kioskModalBody.innerHTML = `
+              <div class="alert alert-info">
+                Este box não está ocupado ou não possui informações cadastradas.
+              </div>
+            `;
+          }
+          
+          kioskModal.show();
+        });
+      });
+      
+      // Implementa a busca
+      searchInput.addEventListener('input', (e) => {
+        const searchTerm = e.target.value.toLowerCase();
+        
+        kiosks.forEach(kiosk => {
+          const boxId = kiosk.getAttribute('data-box');
+          const info = boxData[boxId];
+          
+          if (!searchTerm) {
+            kiosk.style.opacity = '1';
+            return;
+          }
+          
+          if (info) {
+            const matchesSearch = 
+              info.nome.toLowerCase().includes(searchTerm) || 
+              info.cpf.includes(searchTerm) || 
+              info.atividade.toLowerCase().includes(searchTerm) ||
+              boxId.toLowerCase().includes(searchTerm);
+            
+            kiosk.style.opacity = matchesSearch ? '1' : '0.3';
+          } else {
+            kiosk.style.opacity = '0.3';
+          }
+        });
+      });
+      
+      // Implementar filtros
+      filterOptions.forEach(option => {
+        option.addEventListener('click', () => {
+          // Remover classe ativa de todas as opções
+          filterOptions.forEach(opt => opt.classList.remove('active'));
+          
+          // Adicionar classe ativa à opção clicada
+          option.classList.add('active');
+          
+          const filterType = option.dataset.filter;
+          
+          // Aplicar filtro
+          kiosks.forEach(kiosk => {
+            if (filterType === 'todos') {
+              kiosk.style.opacity = '1';
+            } else {
+              const hasClass = kiosk.classList.contains(`fill-${filterType}`);
+              kiosk.style.opacity = hasClass ? '1' : '0.3';
+            }
+          });
+        });
+      });
+      
+      // Função para atualizar contagens no painel lateral
+      function updateStatusCounts() {
+        const countOcupado = document.querySelectorAll('.kiosk.fill-ocupado').length;
+        const countLivre = document.querySelectorAll('.kiosk.fill-livre').length;
+        const countExpirando = document.querySelectorAll('.kiosk.fill-expirando').length;
+        const countExpirado = document.querySelectorAll('.kiosk.fill-expirado').length;
+        const countOutro = document.querySelectorAll('.kiosk.fill-outro').length;
+        
+        document.getElementById('count-ocupado').textContent = countOcupado;
+        document.getElementById('count-livre').textContent = countLivre;
+        document.getElementById('count-expirando').textContent = countExpirando;
+        document.getElementById('count-expirado').textContent = countExpirado;
+        document.getElementById('count-outro').textContent = countOutro;
+      }
+      
+      // Atualiza posição do tooltip
+      function updateTooltipPosition(e) {
+        tooltip.style.left = `${e.pageX + 15}px`;
+        tooltip.style.top = `${e.pageY + 15}px`;
+      }
+    }
+  </script>
+</body>
+</html>
